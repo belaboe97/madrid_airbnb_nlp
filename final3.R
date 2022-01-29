@@ -89,6 +89,9 @@ evaluation %>% summarise(accuracy = sum(correct)/n(),
                          uncertainty = sqrt(accuracy * (1 - accuracy) / n())
 )
 
+freq_1 = kgram_freqs(text_1, 1, sbo_airbnb_dict, .preprocess = identity, EOS = "")
+
+
 doc.corpus<- tm_map(doc.corpus, tolower)
 
 doc.corpus<- tm_map(doc.corpus, removeNumbers)
@@ -99,7 +102,6 @@ text = paste(unlist(doc.corpus$content[1:length(doc.corpus$content)]), collapse=
 
 text_1 <- gsub("[\n]{1,}", " ", text)
 
-freq_1 = kgram_freqs(text_1, 1, sbo_airbnb_dict, .preprocess = identity, EOS = "")
 
 
 #Markov Chain
@@ -107,7 +109,7 @@ words = tokenize_words(text_1)
 
 typeof(words)
 
-fit_markov <- markovchainFit(words)
+
 
 
 predict_word_mchain = function(input){
@@ -116,9 +118,7 @@ predict_word_mchain = function(input){
                       t0 = input , include.t0 = T)) 
 }
 
-
-
-predict_word_mchain("was")[2:4]
+predict_word_mchain("was")
 
 predict_word_mchain_seq = function(input){
   prediction_array = list()
@@ -141,7 +141,7 @@ predict_word_mchain_seq = function(input){
   return(prediction_array)
 }
 
-predict_word_mchain_seq("was")[1:3]
+predict_word_mchain_seq("was")[1:2]
 
 
 
@@ -156,11 +156,68 @@ model = gensim$models$KeyedVectors$load_word2vec_format("C:/Users/Bela Boente/De
 
 model$similarity("the","is")
 
-model$most_similar("king")[1:3]
+model$most_similar("king")[1:2]
+
+
+length(outputarray)
+
+outputarray = list()
+
+i = 1
+outputarray = list()
+
+predict(p, "<EOS>" )#
 
 
 
 
+while(T){
+
+  response = ""
+  print(outputarray)
+  if(length(outputarray)==0){
+
+    val = readline(prompt="Please enter a starting word or sentence: ")
+    outputarray[i] <- val
+  }
+    print("ey")
+    print(outputarray)   
+    last_added = tail(outputarray, n=1)
+    last_word = stri_extract_last_words(last_added)
+    
+    print(last_word)
+    labels = c()
+    labels[1:3] = "sbo" 
+    
+    sbo_prediction = predict(p,last_word)
+    
+    
+    tryCatch({
+      mchain_prediction = predict_word_mchain(last_word)[2:4]
+      mchain_prediction_sent = predict_word_mchain_seq(last_word)[1:2]
+    },
+    error=function(err){
+      print("No markov chain result found")
+    })
+
+    
+    prediction_array = c(sbo_prediction,mchain_prediction,mchain_prediction_sent)
+    pred_df = as.data.frame(list(predictions = unlist(prediction_array), labels = labels))
+    print(pred_df)
+    response = readline(prompt="Choose a prediction by number: ")  
+    
+    outputarray[i+1] = pred_df$predictions[as.numeric(response)] 
+    # 
+    # print(outputarray)
+    # i++ 
+    
+}
+
+# if(response =="stop"){ 
+#   print("This is the final result:")
+#   print(outputarray)
+#   break 
+# }
 
 predict(p,"house")
 
