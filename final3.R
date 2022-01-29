@@ -18,30 +18,14 @@ library(sbo)
 library(tokenizers)
 library(markovchain)
 library(word2vec)
-library(rword2vec)
 library("udpipe")
-
-
 library(reticulate)
 
+########Functions
+#All this functions are initiated and used throughout the project
+#It is important that all steps are executed sequential.
 
-data = read.csv("C:/Users/Bela Boente/Desktop/Programming/NLP/archive/reviews_detailed.csv",encoding = "UTF-8")
-
-data = sample_n(data,500)
-
-utf8_encoded = iconv(data$comments, 'UTF-8', "ASCII")
-
-pre_data = na.omit(utf8_encoded)
-
-pre_data_en = pre_data[detect_language(pre_data) == "en" ]
-
-pre_data_en = na.omit(pre_data_en)
-
-doc.vec = VectorSource(pre_data_en)
-
-doc.corpus = VCorpus(doc.vec)
-
-
+#######Prediction word for sequences 
 plot_frequencies = function(wordcorpus,words,minfreq){
   
   tokenizer = function(x) NGramTokenizer(x, Weka_control(min = words, max = words))
@@ -59,67 +43,22 @@ plot_frequencies = function(wordcorpus,words,minfreq){
   return(freqGraph)
   
 }
+#######Cleaning operations for corpus 
+clean_tm_map = function(corp){
+  corp = tm_map(corp, tolower)
+  corp = tm_map(corp, removeNumbers)
+  corp = tm_map(corp, stripWhitespace)
+  return(corp)
+}
 
-
-
-uniGramGraph <- plot_frequencies(doc.corpus,1,50)
-uniGramGraph <- plot_frequencies(doc.corpus,2,30)
-
-#Stupid Backoff algorithm
-
-
-sbo_airbnb_dict = sbo_dictionary(pre_data_en, max_size=1000)
-
-tt_number = as.integer(length(pre_data_en)*0.2)
-
-traindata = pre_data_en[tt_number:length(pre_data_en)]
-testdata = pre_data_en[1:tt_number]
-
-p <- sbo_predictor(traindata, # 50k tweets, example dataset
-                   N = 5, # Train a 3-gram model
-                   dict = sbo_airbnb_dict, # Top 1k words appearing in corpus
-                   .preprocess = sbo::preprocess, # Preprocessing transformation
-                   EOS = ".?!:;", # End-Of-Sentence characters
-                   filtered = c("<UNK>","EOS>")
-)
-
-evaluation <- eval_sbo_predictor(p, test = testdata )
-
-evaluation %>% summarise(accuracy = sum(correct)/n(), 
-                         uncertainty = sqrt(accuracy * (1 - accuracy) / n())
-)
-
-freq_1 = kgram_freqs(text_1, 1, sbo_airbnb_dict, .preprocess = identity, EOS = "")
-
-
-doc.corpus<- tm_map(doc.corpus, tolower)
-
-doc.corpus<- tm_map(doc.corpus, removeNumbers)
-
-doc.corpus <- tm_map(doc.corpus, stripWhitespace)
-
-text = paste(unlist(doc.corpus$content[1:length(doc.corpus$content)]), collapse="\n")[1]
-
-text_1 <- gsub("[\n]{1,}", " ", text)
-
-
-
-#Markov Chain
-words = tokenize_words(text_1)
-
-typeof(words)
-
-
-
-
+#######Prediction word for single words
 predict_word_mchain = function(input){
   return(markovchainSequence(n = 3, 
                       markovchain = fit_markov$estimate,
                       t0 = input , include.t0 = T)) 
 }
 
-predict_word_mchain("was")
-
+#######Prediction word for sequences 
 predict_word_mchain_seq = function(input){
   prediction_array = list()
   for (i in 1:2) {
@@ -140,29 +79,29 @@ predict_word_mchain_seq = function(input){
   }
   return(prediction_array)
 }
+#######Get Similarities between words
+get_similiarity = function(word,listarr){
+  
+  listarr=listarr$predictions[3:length(listarr$predictions)]
+  lword = stri_extract_last_words(word) 
+  sim_arr = list()  
+  
+  for(i in listarr){
+    last_word = stri_extract_last_words(i)
+    tryCatch({
+      sim_arr[last_word] =  model$similarity(lword,last_word)
+    }, 
+    error = function(err){
+      print(i)
+    })
+    
+  }
+  
+  return(data.frame(sim_arr))
+  
+}
 
-
-
-
-
-reticulate::use_python('C:/tools/Anaconda3/python.exe',required=T)
-reticulate::py_config()
-reticulate::py_install('gensim', pip = TRUE)
-gensim = reticulate::import('gensim')
-
-gensim$models$KeyedVectors$load_word2vec_format
-
-model = gensim$models$KeyedVectors$load_word2vec_format("C:/Users/Bela Boente/Desktop/Programming/NLP/GoogleNews-vectors-negative300.bin", binary=T)
-
-model$similarity("the","is")
-
-model$most_similar("king")[1:2]
-
-
-length(outputarray)
-
-outputarray = list()
-
+#######Application Loop for wordprediction
 start_helper = function (){
   
   i = 1
@@ -175,8 +114,17 @@ start_helper = function (){
     if(length(outputarray)==0){
       
       val = readline(prompt="Please enter a starting word or sentence: ")
-      outputarray[i] <- val
+      if(detect_language(val) == "en"){
+        outputarray[i] <- val 
+        i = i+1
+      }
+      else{
+        print("Please enter an english word or sentence")
+      }
     }
+    
+    if(length(outputarray) > 0){
+    
     last_added = tail(outputarray, n=1)
     last_word = stri_extract_last_words(last_added)
     
@@ -207,6 +155,7 @@ start_helper = function (){
     },
     
     error=function(err){
+      #
       #print(err)
       #print("No markov chain result found")
       labels = c()
@@ -214,20 +163,34 @@ start_helper = function (){
       prediction_array = c(custom_inputs,sbo_prediction)
       pred_df <<- as.data.frame(list(predictions = unlist(prediction_array), labels = labels))
     })
-    
+    print("The Review:")
     print(review)
-    
+    print("___________________________________________________")
+    print("This are the predictions")
     print(pred_df)
+    print("___________________________________________________")
     response = readline(prompt="Choose a prediction by number: ")  
-    
-    if(!is.na(as.numeric(response)) && as.numeric(response) != 2){
-      outputarray[i+1] = pred_df$predictions[as.numeric(response)]
-      similarity_score  = get_similiarity(pred_df$predictions[as.numeric(response)],pred_df)
-      print(similarity_score)
+ 
+    if(is.na(as.numeric(response)) ||  !between(as.numeric(response),1,length(pred_df$predictions))){
+      print(sprintf("Please enter a numeric value between 1 and %s to verify your choice", length(pred_df$predictions)))
     }
     
-    if(!is.na(as.numeric(response)) && as.numeric(response) == 2){
-      outputarray[i+1] = readline("enter text: ")  
+    else if(!is.na(as.numeric(response)) && as.numeric(response) != 2){
+      outputarray[i] = pred_df$predictions[as.numeric(response)]
+      similarity_score  = get_similiarity(pred_df$predictions[as.numeric(response)],pred_df)
+      print("___________________________________________________")
+      print(sprintf("This are the similiarities to the chosen (last) word: %s",pred_df$predictions[as.numeric(response)]))
+      print(similarity_score)
+      print("___________________________________________________")
+    }
+    
+    else if(!is.na(as.numeric(response)) && as.numeric(response) == 2){
+      outputarray[i] = readline("enter text: ")
+      similarity_score  = get_similiarity(outputarray[i],pred_df)
+      print("___________________________________________________")
+      print(sprintf("This are the similiarities to the chosen (last) word: %s",outputarray[i]))
+      print(similarity_score)
+      print("___________________________________________________")
     }
     
     unlist(outputarray) %>% paste(collapse = " ") %>% str_to_sentence() -> review
@@ -239,30 +202,98 @@ start_helper = function (){
      }
     
     i = i + 1
+    }
   }
-  
 }
 
-get_similiarity = function(word,listarr){
-  
-  listarr=listarr$predictions[3:length(listarr$predictions)]
-  lword = stri_extract_last_words(word) 
-  sim_arr = list()  
-  
-  for(i in listarr){
-    last_word = stri_extract_last_words(i)
-    tryCatch({
-      sim_arr[last_word] =  model$similarity(lword,last_word)
-    }, 
-    error = function(err){
-      print(i)
-    })
-    
-  }
-  
-  return(data.frame(sim_arr))
-  
-}
+#######Start of the application / Cleaning and Analytics
+
+
+data = read.csv("C:/Users/Bela Boente/Desktop/Programming/NLP/archive/reviews_detailed.csv",encoding = "UTF-8")
+
+data = sample_n(data,500)
+
+utf8_encoded = iconv(data$comments, 'UTF-8', "ASCII")
+
+pre_data = na.omit(utf8_encoded)
+
+pre_data_en = pre_data[detect_language(pre_data) == "en" ]
+
+pre_data_en = na.omit(pre_data_en)
+
+doc.vec = VectorSource(pre_data_en)
+
+doc.corpus = VCorpus(doc.vec)
+
+#######Prediction word for sequences Visual Analytics / Most common word detection on partly cleaned dataset
+
+g1 <- plot_frequencies(doc.corpus,1,50)
+print(g1)
+
+g2 <- plot_frequencies(doc.corpus,1,50)
+print(g2)
+
+
+text = clean_tm_map(doc.corpus)
+
+
+text = paste(unlist(text), collapse="\n")[1]
+
+text_1 <- gsub("[\n]{1,}", " ", text)
+
+
+wordcloud(text_1, max.words = 500, random.order = FALSE,rot.per=0.35, use.r.layout=FALSE,colors=brewer.pal(6, "Dark2"))
+
+#######Initializing stupid backoff algorithm on partly cleaned dataset
+
+sbo_airbnb_dict = sbo_dictionary(pre_data_en, max_size=1000)
+
+tt_number = as.integer(length(pre_data_en)*0.2)
+
+traindata = pre_data_en[tt_number:length(pre_data_en)]
+testdata = pre_data_en[1:tt_number]
+
+#Fit model on triandata
+p <- sbo_predictor(traindata, # 50k tweets, example dataset
+                   N = 5, # Train a 3-gram model
+                   dict = sbo_airbnb_dict, # Top 1k words appearing in corpus
+                   .preprocess = sbo::preprocess, # Preprocessing transformation
+                   EOS = ".?!:;", # End-Of-Sentence characters
+                   filtered = c("<UNK>","EOS>")
+)
+#Evaluate model on testdata
+evaluation <- eval_sbo_predictor(p, test = testdata )
+
+evaluation %>% summarise(accuracy = sum(correct)/n(), 
+                         uncertainty = sqrt(accuracy * (1 - accuracy) / n())
+)
+#Refirt model on all data
+p <- sbo_predictor(pre_data_en, # 50k tweets, example dataset
+                   N = 5, # Train a 3-gram model
+                   dict = sbo_airbnb_dict, # Top 1k words appearing in corpus
+                   .preprocess = sbo::preprocess, # Preprocessing transformation
+                   EOS = ".?!:;", # End-Of-Sentence characters
+                   filtered = c("<UNK>","EOS>")
+)
+
+#######Initializing Markov Chain on fully cleaned dataset
+words = tokenize_words(text_1)
+#Fit markov model 
+fit_markov <- markovchainFit(words)
+
+#######Import independet source of large model (google) to evaluate similiarities between sbo and markov predictions
+## Assumption: Googles Dataset trained on wikipedia, gives a really good estimation if words are similiar or not
+
+reticulate::use_python('C:/tools/Anaconda3/python.exe',required=T)
+reticulate::py_config()
+reticulate::py_install('gensim', pip = TRUE)
+
+gensim = reticulate::import('gensim')
+
+gensim$models$KeyedVectors$load_word2vec_format
+
+model = gensim$models$KeyedVectors$load_word2vec_format("C:/Users/Bela Boente/Desktop/Programming/NLP/GoogleNews-vectors-negative300.bin", binary=T)
+
 
 
 start_helper()
