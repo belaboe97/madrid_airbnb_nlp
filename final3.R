@@ -80,7 +80,7 @@ p <- sbo_predictor(traindata, # 50k tweets, example dataset
                    dict = sbo_airbnb_dict, # Top 1k words appearing in corpus
                    .preprocess = sbo::preprocess, # Preprocessing transformation
                    EOS = ".?!:;", # End-Of-Sentence characters
-                   filtered = "<UNK>"
+                   filtered = c("<UNK>","EOS>")
 )
 
 evaluation <- eval_sbo_predictor(p, test = testdata )
@@ -141,7 +141,7 @@ predict_word_mchain_seq = function(input){
   return(prediction_array)
 }
 
-predict_word_mchain_seq("was")[1:2]
+
 
 
 
@@ -163,63 +163,109 @@ length(outputarray)
 
 outputarray = list()
 
-i = 1
-outputarray = list()
-
-predict(p, "<EOS>" )#
-
-
-
-
-while(T){
-
-  response = ""
-  print(outputarray)
-  if(length(outputarray)==0){
-
-    val = readline(prompt="Please enter a starting word or sentence: ")
-    outputarray[i] <- val
-  }
-    print("ey")
-    print(outputarray)   
+start_helper = function (){
+  
+  i = 1
+  outputarray = list()
+  
+  
+  while(T){
+    
+    response = ""
+    if(length(outputarray)==0){
+      
+      val = readline(prompt="Please enter a starting word or sentence: ")
+      outputarray[i] <- val
+    }
     last_added = tail(outputarray, n=1)
     last_word = stri_extract_last_words(last_added)
     
-    print(last_word)
     labels = c()
-    labels[1:3] = "sbo" 
+    custom_inputs = c("<EOS>","Enter text")
+    mchain_prediction = c()
+    mchain_prediction_sent = c()
+    labels[1] = "End of sentence"
+    labels[2] = "Custom input"
+    labels[3:5] = "sbo"
+    
+    unlist(outputarray) %>% paste(collapse = " ") %>% str_to_sentence() -> review
     
     sbo_prediction = predict(p,last_word)
     
-    
     tryCatch({
+      
       mchain_prediction = predict_word_mchain(last_word)[2:4]
       mchain_prediction_sent = predict_word_mchain_seq(last_word)[1:2]
-    },
-    error=function(err){
-      print("No markov chain result found")
-    })
+      
+      mchain_prediction_sent = list(word(mchain_prediction_sent[1], 2:4) %>% paste(collapse = " ") %>% str_to_sentence(), 
+                                    word(mchain_prediction_sent[2], 2:4) %>% paste(collapse = " ") %>% str_to_sentence())
 
+      prediction_array = c(sbo_prediction,mchain_prediction,mchain_prediction_sent)
+      labels[6:10] = "markov" 
+      prediction_array = c(custom_inputs,sbo_prediction,mchain_prediction,mchain_prediction_sent)
+      pred_df = as.data.frame(list(predictions = unlist(prediction_array), labels = labels))
+    },
     
-    prediction_array = c(sbo_prediction,mchain_prediction,mchain_prediction_sent)
-    pred_df = as.data.frame(list(predictions = unlist(prediction_array), labels = labels))
+    error=function(err){
+      #print(err)
+      #print("No markov chain result found")
+      labels = c()
+      labels[3:5] = "sbo"
+      prediction_array = c(custom_inputs,sbo_prediction)
+      pred_df <<- as.data.frame(list(predictions = unlist(prediction_array), labels = labels))
+    })
+    
+    print(review)
+    
     print(pred_df)
     response = readline(prompt="Choose a prediction by number: ")  
     
-    outputarray[i+1] = pred_df$predictions[as.numeric(response)] 
-    # 
-    # print(outputarray)
-    # i++ 
+    if(!is.na(as.numeric(response)) && as.numeric(response) != 2){
+      outputarray[i+1] = pred_df$predictions[as.numeric(response)]
+      similarity_score  = get_similiarity(pred_df$predictions[as.numeric(response)],pred_df)
+      print(similarity_score)
+    }
     
+    if(!is.na(as.numeric(response)) && as.numeric(response) == 2){
+      outputarray[i+1] = readline("enter text: ")  
+    }
+    
+    unlist(outputarray) %>% paste(collapse = " ") %>% str_to_sentence() -> review
+    
+    if(response =="stop"){ 
+       print("This is the final result:")
+        print(review)
+        break 
+     }
+    
+    i = i + 1
+  }
+  
 }
 
-# if(response =="stop"){ 
-#   print("This is the final result:")
-#   print(outputarray)
-#   break 
-# }
+get_similiarity = function(word,listarr){
+  
+  listarr=listarr$predictions[3:length(listarr$predictions)]
+  lword = stri_extract_last_words(word) 
+  sim_arr = list()  
+  
+  for(i in listarr){
+    last_word = stri_extract_last_words(i)
+    tryCatch({
+      sim_arr[last_word] =  model$similarity(lword,last_word)
+    }, 
+    error = function(err){
+      print(i)
+    })
+    
+  }
+  
+  return(data.frame(sim_arr))
+  
+}
 
-predict(p,"house")
+
+start_helper()
 
 
 
