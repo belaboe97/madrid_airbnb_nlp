@@ -20,7 +20,7 @@ pre_data = na.omit(utf8_encoded)
 
 pre_data_en = pre_data[detect_language(pre_data) == "en" ]
 
-print(pre_data_en)
+#print(pre_data_en)
 
 pre_data_en = na.omit(pre_data_en)
 
@@ -52,9 +52,6 @@ doc.corpus<- tm_map(doc.corpus, removeNumbers)
 doc.corpus <- tm_map(doc.corpus, stripWhitespace)
 #force everything back to plaintext document
 
-text = paste(unlist(doc.corpus$content[1:length(doc.corpus$content)]), collapse="\n")[1]
-
-text_1 <- gsub("[\n]{1,}", " ", text)
 
 
 library(tokenizers)
@@ -67,13 +64,13 @@ typeof(words)
 fit_markov <- markovchainFit(words)
 
 
-for (i in 1:10) {
+for (i in 1:2) {
   
   set.seed(i)
   
   markovchainSequence(n = 10, 
                       markovchain = fit_markov$estimate,
-                      t0 = "apartment", include.t0 = T) %>% 
+                      t0 = "in the apartment", include.t0 = T) %>% 
     
     # joint words
     paste(collapse = " ") %>% 
@@ -87,6 +84,7 @@ for (i in 1:10) {
     
     print()
 }
+
 
 
 predictive_text <- function(text, num_word){
@@ -106,19 +104,13 @@ predictive_text <- function(text, num_word){
 }
 
 pdt = predictive_text("i am", 3)
-pdt
+
 
 
 library(word2vec)
 library(rword2vec)
 library("udpipe")
 
-writeLines(text_1, "airbnb_model.bin")
-
-read.word2vec()
-path <- system.file(package = "word2vec", "models", "C:/Users/Bela Boente/Desktop/Programming/NLP/GoogleNews-vectors-negative300.bin")
-model <-read.word2vec("C:/Users/Bela Boente/Desktop/Programming/NLP/GoogleNews-vectors-negative300.bin")
-model$vocabulary[1]
 
 library(reticulate)
 
@@ -134,45 +126,5 @@ model = gensim$models$KeyedVectors$load_word2vec_format("C:/Users/Bela Boente/De
 model$similarity("the","is")
 
 model$most_similar("king")[1:3]
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-word2vec::read.wordvectors("C:/Users/Bela Boente/Desktop/Programming/NLP/GoogleNews-vectors-negative300.bin",)
-#model=word2vec(x = doc.corpus, dim = 15, iter = 20)
-#dist=distance(model,search_word = "king",num = 10)
-embedding <- as.matrix(model)
-embedding <- predict(model, c("the", "is"), type = "embedding")
-lookslike <- predict(model, c("the", "is"), type = "nearest", top_n = 5)
-
-lookslike
-
-typeof(unlist(doc.corpus))
-
-model <- word2vec(x = text_1, dim = 15, iter = 20)
-
-
-model <- read.word2vec(file = "cb_ns_500_10.w2v", normalize = TRUE)
-
-emb <- as.matrix(model)
-
-word2vec_similarity(pdt[1], pdt[2])
-
 
 

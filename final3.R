@@ -6,7 +6,7 @@ library(tm)
 library(qdapDictionaries)
 library(tidytext)
 library(stringi)
-library(devtools)
+#library(devtools)
 library(cld2)
 library(cld3)
 library(spacyr)
@@ -15,8 +15,19 @@ library(RWeka)
 library(ggplot2)
 library(wordcloud)
 library(sbo)
+library(tokenizers)
+library(markovchain)
+library(word2vec)
+library(rword2vec)
+library("udpipe")
+
+
+library(reticulate)
+
 
 data = read.csv("C:/Users/Bela Boente/Desktop/Programming/NLP/archive/reviews_detailed.csv",encoding = "UTF-8")
+
+data = sample_n(data,500)
 
 utf8_encoded = iconv(data$comments, 'UTF-8', "ASCII")
 
@@ -24,40 +35,37 @@ pre_data = na.omit(utf8_encoded)
 
 pre_data_en = pre_data[detect_language(pre_data) == "en" ]
 
-print(pre_data_en)
-
 pre_data_en = na.omit(pre_data_en)
 
 doc.vec = VectorSource(pre_data_en)
+
 doc.corpus = VCorpus(doc.vec)
 
-doc.corpus<- tm_map(doc.corpus, tolower)
 
-#Remove all punctuatins
+plot_frequencies = function(wordcorpus,words,minfreq){
+  
+  tokenizer = function(x) NGramTokenizer(x, Weka_control(min = words, max = words))
+  matrix = TermDocumentMatrix(wordcorpus, control = list(tokenize = tokenizer))
+  freqTerms = findFreqTerms(matrix, lowfreq = minfreq)
+  termFrequency = rowSums(as.matrix(matrix[freqTerms,]))
+  termFrequency = data.frame(diagram=names(termFrequency), frequency=termFrequency)  
+  
+  freqGraph <- ggplot(termFrequency, aes(x=reorder(diagram, frequency), y=frequency)) +
+    geom_bar(stat = "identity") +  coord_flip() +
+    theme(legend.title=element_blank()) +
+    xlab("Wordcombinatio") + ylab("Frequency") +
+    labs(title = sprintf("Words by Frequency (%s)",words))
+  
+  return(freqGraph)
+  
+}
 
-#doc.corpus<- tm_map(doc.corpus, removePunctuation)
-#Remove all numbers
 
-doc.corpus<- tm_map(doc.corpus, removeNumbers)
-#Remove whitespace
 
-doc.corpus <- tm_map(doc.corpus, stripWhitespace)
+uniGramGraph <- plot_frequencies(doc.corpus,1,50)
+uniGramGraph <- plot_frequencies(doc.corpus,2,30)
 
-uniGramTokenizer <- function(x) NGramTokenizer(x, Weka_control(min = 1, max = 1))
-
-uniGramMatrix <- TermDocumentMatrix(doc.corpus, control = list(tokenize = uniGramTokenizer))
-
-UnifreqTerms <- findFreqTerms(uniGramMatrix, lowfreq = 5)
-
-UnitermFrequency <- rowSums(as.matrix(uniGramMatrix[UnifreqTerms,]))
-UnitermFrequency <- data.frame(unigram=names(UnitermFrequency), frequency=UnitermFrequency)
-
-g1 <- ggplot(UnitermFrequency, aes(x=reorder(unigram, frequency), y=frequency)) +
-  geom_bar(stat = "identity") +  coord_flip() +
-  theme(legend.title=element_blank()) +
-  xlab("Unigram") + ylab("Frequency") +
-  labs(title = "Top Unigrams by Frequency")
-print(g1)
+#Stupid Backoff algorithm
 
 
 sbo_airbnb_dict = sbo_dictionary(pre_data_en, max_size=1000)
@@ -81,6 +89,80 @@ evaluation %>% summarise(accuracy = sum(correct)/n(),
                          uncertainty = sqrt(accuracy * (1 - accuracy) / n())
 )
 
-babble(p)
+doc.corpus<- tm_map(doc.corpus, tolower)
+
+doc.corpus<- tm_map(doc.corpus, removeNumbers)
+
+doc.corpus <- tm_map(doc.corpus, stripWhitespace)
+
+text = paste(unlist(doc.corpus$content[1:length(doc.corpus$content)]), collapse="\n")[1]
+
+text_1 <- gsub("[\n]{1,}", " ", text)
+
+freq_1 = kgram_freqs(text_1, 1, sbo_airbnb_dict, .preprocess = identity, EOS = "")
+
+
+#Markov Chain
+words = tokenize_words(text_1)
+
+typeof(words)
+
+fit_markov <- markovchainFit(words)
+
+
+predict_word_mchain = function(input){
+  return(markovchainSequence(n = 3, 
+                      markovchain = fit_markov$estimate,
+                      t0 = input , include.t0 = T)) 
+}
+
+
+
+predict_word_mchain("was")[2:4]
+
+predict_word_mchain_seq = function(input){
+  prediction_array = list()
+  for (i in 1:2) {
+    markovchainSequence(n = 3, 
+                        markovchain = fit_markov$estimate,
+                        t0 = input, include.t0 = T) %>% 
+      
+      # joint words
+      paste(collapse = " ") %>% 
+      
+      # create proper sentence form
+      str_replace_all(pattern = " ,", replacement = ",") %>% 
+      str_replace_all(pattern = " [.]", replacement = ".") %>% 
+      str_replace_all(pattern = " [!]", replacement = "!") %>% 
+      
+      str_to_sentence() -> prediction 
+      prediction_array[i] = prediction
+  }
+  return(prediction_array)
+}
+
+predict_word_mchain_seq("was")[1:3]
+
+
+
+reticulate::use_python('C:/tools/Anaconda3/python.exe',required=T)
+reticulate::py_config()
+reticulate::py_install('gensim', pip = TRUE)
+gensim = reticulate::import('gensim')
+
+gensim$models$KeyedVectors$load_word2vec_format
+
+model = gensim$models$KeyedVectors$load_word2vec_format("C:/Users/Bela Boente/Desktop/Programming/NLP/GoogleNews-vectors-negative300.bin", binary=T)
+
+model$similarity("the","is")
+
+model$most_similar("king")[1:3]
+
+
+
+
+
+predict(p,"house")
+
 
 

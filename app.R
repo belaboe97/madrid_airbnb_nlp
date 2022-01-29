@@ -15,9 +15,6 @@ library(RWeka)
 library(ggplot2)
 library(wordcloud)
 
-detect_language("Patricia y su esposo muy atentos y dedicados a nuestras necesidades.")
-detect_language("This is an example") == "en" 
-
 
 #Import data
 data = read.csv("C:/Users/Bela Boente/Desktop/Programming/NLP/archive/reviews_detailed.csv",encoding = "UTF-8")
@@ -37,7 +34,7 @@ pre_data = na.omit(utf8_encoded)
 
 pre_data_en = pre_data[detect_language(pre_data) == "en" ]
 
-print(pre_data_en)
+#print(pre_data_en)
 
 pre_data_en = na.omit(pre_data_en)
 
@@ -81,6 +78,10 @@ biGramMatrix <- TermDocumentMatrix(doc.corpus, control = list(tokenize = biGramT
 triGramMatrix <- TermDocumentMatrix(doc.corpus, control = list(tokenize = triGramTokenizer))
 quadGramMatrix <- TermDocumentMatrix(doc.corpus, control = list(tokenize = quadGramTokenizer))
 
+freqTerms <- findFreqTerms(biGramMatrix, lowfreq = 10)
+termFrequency <- rowSums(as.matrix(biGramMatrix[freqTerms,]))
+termFrequency <- data.frame(bigram=names(termFrequency), frequency=termFrequency)
+
 UnifreqTerms <- findFreqTerms(uniGramMatrix, lowfreq = 500)
 UnitermFrequency <- rowSums(as.matrix(uniGramMatrix[UnifreqTerms,]))
 UnitermFrequency <- data.frame(unigram=names(UnitermFrequency), frequency=UnitermFrequency)
@@ -92,11 +93,9 @@ g1 <- ggplot(UnitermFrequency, aes(x=reorder(unigram, frequency), y=frequency)) 
   labs(title = "Top Unigrams by Frequency")
 print(g1)
 
+
 ####Second Plot 
 
-freqTerms <- findFreqTerms(biGramMatrix, lowfreq = 100)
-termFrequency <- rowSums(as.matrix(biGramMatrix[freqTerms,]))
-termFrequency <- data.frame(bigram=names(termFrequency), frequency=termFrequency)
 
 g2 <- ggplot(termFrequency, aes(x=reorder(bigram, frequency), y=frequency )) +
   geom_bar(stat = "identity", colour = "red") +  coord_flip() +
