@@ -1,3 +1,29 @@
+#Install Packages
+
+# install.packages("dplyr")
+# install.packages(dplyr)
+# install.packages(superml)
+# install.packages(utf8)
+# install.packages(NLP)
+# install.packages(tm)
+# install.packages(qdapDictionaries)
+# install.packages(tidytext)
+# install.packages(stringi)
+# install.packages(cld2)
+# install.packages(cld3)
+# install.packages(spacyr)
+# install.packages(stringr)
+# install.packages(RWeka)
+# install.packages(ggplot2)
+# install.packages(wordcloud)
+# install.packages(sbo)
+# install.packages(tokenizers)
+# install.packages(markovchain)
+# install.packages(word2vec)
+# install.packages("udpipe")
+# install.packages(reticulate)
+
+## Required packages
 library(dplyr)
 library(superml)
 library(utf8)
@@ -19,6 +45,11 @@ library(markovchain)
 library(word2vec)
 library("udpipe")
 library(reticulate)
+
+
+#Path of your R file 
+setwd("")
+
 
 ########Functions
 #All this functions are initiated and used throughout the project
@@ -222,7 +253,7 @@ start_helper = function (){
 #######Start of the application / Cleaning and Analytics
 
 
-data = read.csv("C:/Users/Bela Boente/Desktop/Programming/NLP/archive/reviews_detailed.csv",encoding = "UTF-8")
+data = read.csv("archive/reviews_detailed.csv",encoding = "UTF-8")
 
 data = sample_n(data,500)
 
@@ -312,11 +343,8 @@ fit_markov <- markovchainFit(words)
 #######Import independet source of large model (google) to evaluate similiarities between sbo and markov predictions
 ## Assumption: Googles Dataset trained on wikipedia, gives a really good estimation if words are similiar or not
 
-
-
-# 
-# For installation with coda env: https://stackoverflow.com/questions/62532838/how-to-install-keras-bert-packagesnotfounderror-the-following-packages-are-no
-reticulate::use_python('C:/tools/Anaconda3/python.exe',required=T)
+#C:/tools/Anaconda3/python.exe
+reticulate::use_python('Enter installed python version here, (python where)',required=T)
 reticulate::py_config()
 reticulate::py_install('gensim', pip = TRUE)
 
@@ -324,9 +352,7 @@ gensim = reticulate::import('gensim')
 
 gensim$models$KeyedVectors$load_word2vec_format
 
-model = gensim$models$KeyedVectors$load_word2vec_format("C:/Users/Bela Boente/Desktop/Programming/NLP/GoogleNews-vectors-negative300.bin", binary=T)
-
-
+model = gensim$models$KeyedVectors$load_word2vec_format("GoogleNews-vectors-negative300.bin", binary=T)
 
 start_helper()
 
