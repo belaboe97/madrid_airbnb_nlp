@@ -1,9 +1,0 @@
-name: bert_env
-channels:
-  - defaults
-dependencies:
-  - numpy
-  - keras
-  - pip
-  - pip:
-    - keras-bert

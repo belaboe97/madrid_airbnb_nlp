@@ -6,7 +6,6 @@ library(tm)
 library(qdapDictionaries)
 library(tidytext)
 library(stringi)
-library(devtools)
 library(cld2)
 library(cld3)
 library(spacyr)
@@ -14,19 +13,218 @@ library(stringr)
 library(RWeka)
 library(ggplot2)
 library(wordcloud)
+library(sbo)
+library(tokenizers)
+library(markovchain)
+library(word2vec)
+library("udpipe")
+library(reticulate)
+
+########Functions
+#All this functions are initiated and used throughout the project
+#It is important that all steps are executed sequential.
+
+#######Prediction word for sequences 
+#Code optained and adjusted from https://rpubs.com/tahirhussa/207317
+plot_frequencies = function(wordcorpus,words,minfreq){
+  
+  tokenizer = function(x) NGramTokenizer(x, Weka_control(min = words, max = words))
+  matrix = TermDocumentMatrix(wordcorpus, control = list(tokenize = tokenizer))
+  freqTerms = findFreqTerms(matrix, lowfreq = minfreq)
+  termFrequency = rowSums(as.matrix(matrix[freqTerms,]))
+  termFrequency = data.frame(diagram=names(termFrequency), frequency=termFrequency)  
+  
+  freqGraph <- ggplot(termFrequency, aes(x=reorder(diagram, frequency), y=frequency)) +
+    geom_bar(stat = "identity") +  coord_flip() +
+    theme(legend.title=element_blank()) +
+    xlab("Wordcombinations") + ylab("Frequency") +
+    labs(title = sprintf("Words by Frequency (%s)",words))
+  
+  return(freqGraph)
+  
+}
+#######Cleaning operations for corpus 
+#Code optained and adjusted from https://rpubs.com/tahirhussa/207317
+clean_tm_map = function(corp){
+  corp = tm_map(corp, tolower)
+  corp = tm_map(corp, removeNumbers)
+  corp = tm_map(corp, stripWhitespace)
+  return(corp)
+}
+
+#######Prediction word for single words
+# Code copied and adjusted from https://rpubs.com/Argaadya/markov-chain 
+# Chapter Text Generation with N-gram
+predict_word_mchain = function(input){
+  return(markovchainSequence(n = 3, 
+                             markovchain = fit_markov$estimate,
+                             t0 = input , include.t0 = T)) 
+}
+
+#######Prediction word for sequences 
+# Code copied and adjusted from https://rpubs.com/Argaadya/markov-chain 
+# Chapter Text Generation with N-gram
+predict_word_mchain_seq = function(input){
+  prediction_array = list()
+  for (i in 1:2) {
+    markovchainSequence(n = 3, 
+                        markovchain = fit_markov$estimate,
+                        t0 = input, include.t0 = T) %>% 
+      
+      # joint words
+      paste(collapse = " ") %>% 
+      
+      # create proper sentence form
+      str_replace_all(pattern = " ,", replacement = ",") %>% 
+      str_replace_all(pattern = " [.]", replacement = ".") %>% 
+      str_replace_all(pattern = " [!]", replacement = "!") %>% 
+      
+      str_to_sentence() -> prediction 
+    prediction_array[i] = prediction
+  }
+  return(prediction_array)
+}
+#######Get Similarities between words
+get_similiarity = function(word,listarr){
+  
+  listarr=listarr$predictions[3:length(listarr$predictions)]
+  lword = stri_extract_last_words(word) 
+  sim_arr = list()  
+  
+  for(i in listarr){
+    last_word = stri_extract_last_words(i)
+    tryCatch({
+      sim_arr[last_word] =  model$similarity(lword,last_word)
+    }, 
+    error = function(err){
+      print(i)
+    })
+    
+  }
+  
+  return(data.frame(sim_arr))
+  
+}
+
+#######Application Loop for wordprediction
+start_helper = function (){
+  
+  i = 1
+  outputarray = list()
+  
+  
+  while(T){
+    
+    response = ""
+    if(length(outputarray)==0){
+      
+      val = readline(prompt="Please enter a starting word or sentence: ")
+      
+      if(!is.na(detect_language(val))){
+        
+        
+        if(detect_language(val) == "en"){
+          outputarray[i] <- val 
+          i = i+1
+        }
+        else{
+          print("Please enter an english word or sentence")
+        }
+      }
+      else{
+        print("Check sentence again, or just simply type: 'Our flat' as starting point (works!)")
+      }
+    }
+    
+    if(length(outputarray) > 0){
+      
+      last_added = tail(outputarray, n=1)
+      last_word = stri_extract_last_words(last_added)
+      
+      labels = c()
+      custom_inputs = c("<EOS>","Enter text")
+      mchain_prediction = c()
+      mchain_prediction_sent = c()
+      labels[1] = "End of sentence"
+      labels[2] = "Custom input"
+      labels[3:5] = "sbo"
+      
+      unlist(outputarray) %>% paste(collapse = " ") %>% str_to_sentence() -> review
+      
+      sbo_prediction = predict(p,last_word)
+      
+      tryCatch({
+        
+        mchain_prediction = predict_word_mchain(last_word)[2:4]
+        mchain_prediction_sent = predict_word_mchain_seq(last_word)[1:2]
+        
+        mchain_prediction_sent = list(word(mchain_prediction_sent[1], 2:4) %>% paste(collapse = " ") %>% str_to_sentence(), 
+                                      word(mchain_prediction_sent[2], 2:4) %>% paste(collapse = " ") %>% str_to_sentence())
+        
+        prediction_array = c(sbo_prediction,mchain_prediction,mchain_prediction_sent)
+        labels[6:10] = "markov" 
+        prediction_array = c(custom_inputs,sbo_prediction,mchain_prediction,mchain_prediction_sent)
+        pred_df = as.data.frame(list(predictions = unlist(prediction_array), labels = labels))
+      },
+      
+      error=function(err){
+        #
+        #print(err)
+        #print("No markov chain result found")
+        labels = c()
+        labels[3:5] = "sbo"
+        prediction_array = c(custom_inputs,sbo_prediction)
+        pred_df <<- as.data.frame(list(predictions = unlist(prediction_array), labels = labels))
+      })
+      print("The Review:")
+      print(review)
+      print("___________________________________________________")
+      print("This are the predictions")
+      print(pred_df)
+      print("___________________________________________________")
+      response = readline(prompt="Choose a prediction by number: ")  
+      
+      if(is.na(as.numeric(response)) ||  !between(as.numeric(response),1,length(pred_df$predictions))){
+        print(sprintf("Please enter a numeric value between 1 and %s to verify your choice", length(pred_df$predictions)))
+      }
+      
+      else if(!is.na(as.numeric(response)) && as.numeric(response) != 2){
+        outputarray[i] = pred_df$predictions[as.numeric(response)]
+        similarity_score  = get_similiarity(pred_df$predictions[as.numeric(response)],pred_df)
+        print("___________________________________________________")
+        print(sprintf("This are the similiarities to the chosen (last) word: %s",pred_df$predictions[as.numeric(response)]))
+        print(similarity_score)
+        print("___________________________________________________")
+      }
+      
+      else if(!is.na(as.numeric(response)) && as.numeric(response) == 2){
+        outputarray[i] = readline("enter text: ")
+        similarity_score  = get_similiarity(outputarray[i],pred_df)
+        print("___________________________________________________")
+        print(sprintf("This are the similiarities to the chosen (last) word: %s",outputarray[i]))
+        print(similarity_score)
+        print("___________________________________________________")
+      }
+      
+      unlist(outputarray) %>% paste(collapse = " ") %>% str_to_sentence() -> review
+      
+      if(response =="stop"){ 
+        print("This is the final result:")
+        print(review)
+        break 
+      }
+      
+      i = i + 1
+    }
+  }
+}
+
+#######Start of the application / Cleaning and Analytics
 
 
-#Import data
 data = read.csv("C:/Users/Bela Boente/Desktop/Programming/NLP/archive/reviews_detailed.csv",encoding = "UTF-8")
 
-#head(data,1)
-#summary(data)
-
 data = sample_n(data,500)
-
-#print(data)
-
-#Encoding(data$comments)
 
 utf8_encoded = iconv(data$comments, 'UTF-8', "ASCII")
 
@@ -34,282 +232,103 @@ pre_data = na.omit(utf8_encoded)
 
 pre_data_en = pre_data[detect_language(pre_data) == "en" ]
 
-#print(pre_data_en)
-
 pre_data_en = na.omit(pre_data_en)
 
-length(pre_data_en)
-
-
 doc.vec = VectorSource(pre_data_en)
+
 doc.corpus = VCorpus(doc.vec)
 
-#https://rpubs.com/tahirhussa/207317
-#Check this functions
-#https://stackoverflow.com/questions/24771165/r-project-no-applicable-method-for-meta-applied-to-an-object-of-class-charact
-#Convert to lower case
+#######Prediction word for sequences Visual Analytics / Most common word detection on partly cleaned dataset
 
-
-#Read more about V-Corpus
-#https://rpubs.com/anlope10/588192
-
-doc.corpus<- tm_map(doc.corpus, tolower)
-
-#Remove all punctuatins
-
-doc.corpus<- tm_map(doc.corpus, removePunctuation)
-#Remove all numbers
-
-doc.corpus<- tm_map(doc.corpus, removeNumbers)
-#Remove whitespace
-
-doc.corpus <- tm_map(doc.corpus, stripWhitespace)
-#force everything back to plaintext document
-
-#Adjust this part!
-
-uniGramTokenizer <- function(x) NGramTokenizer(x, Weka_control(min = 1, max = 1))
-biGramTokenizer <- function(x) NGramTokenizer(x, Weka_control(min = 2, max = 2))
-triGramTokenizer <- function(x) NGramTokenizer(x, Weka_control(min = 3, max = 3))
-quadGramTokenizer <- function(x) NGramTokenizer(x, Weka_control(min = 4, max = 4))
-
-uniGramMatrix <- TermDocumentMatrix(doc.corpus, control = list(tokenize = uniGramTokenizer))
-biGramMatrix <- TermDocumentMatrix(doc.corpus, control = list(tokenize = biGramTokenizer))
-triGramMatrix <- TermDocumentMatrix(doc.corpus, control = list(tokenize = triGramTokenizer))
-quadGramMatrix <- TermDocumentMatrix(doc.corpus, control = list(tokenize = quadGramTokenizer))
-
-freqTerms <- findFreqTerms(biGramMatrix, lowfreq = 10)
-termFrequency <- rowSums(as.matrix(biGramMatrix[freqTerms,]))
-termFrequency <- data.frame(bigram=names(termFrequency), frequency=termFrequency)
-
-UnifreqTerms <- findFreqTerms(uniGramMatrix, lowfreq = 500)
-UnitermFrequency <- rowSums(as.matrix(uniGramMatrix[UnifreqTerms,]))
-UnitermFrequency <- data.frame(unigram=names(UnitermFrequency), frequency=UnitermFrequency)
-
-g1 <- ggplot(UnitermFrequency, aes(x=reorder(unigram, frequency), y=frequency)) +
-  geom_bar(stat = "identity") +  coord_flip() +
-  theme(legend.title=element_blank()) +
-  xlab("Unigram") + ylab("Frequency") +
-  labs(title = "Top Unigrams by Frequency")
+g1 <- plot_frequencies(doc.corpus,1,50)
 print(g1)
 
-
-####Second Plot 
-
-
-g2 <- ggplot(termFrequency, aes(x=reorder(bigram, frequency), y=frequency )) +
-  geom_bar(stat = "identity", colour = "red") +  coord_flip() +
-  theme(legend.title=element_blank()) +
-  xlab("Bigram") + ylab("Frequency") +
-  labs(title = "Top Bigrams by Frequency ")
+g2 <- plot_frequencies(doc.corpus,2,20)
 print(g2)
 
 
-###Third Plot 
-freqTerms <- findFreqTerms(triGramMatrix, lowfreq = 15)
-termFrequency <- rowSums(as.matrix(triGramMatrix[freqTerms,]))
-termFrequency <- data.frame(trigram=names(termFrequency), frequency=termFrequency)
-
-g3 <- ggplot(termFrequency, aes(x=reorder(trigram, frequency), y=frequency)) +
-  geom_bar(stat = "identity", colour = "blue") +  coord_flip() +
-  theme(legend.title=element_blank()) +
-  xlab("Trigram") + ylab("Frequency") +
-  labs(title = "Top Trigrams by Frequency")
-print(g3)
+text = clean_tm_map(doc.corpus)
 
 
-###Fourth Plot 
+text = paste(unlist(text), collapse="\n")[1]
 
-freqTerms <- findFreqTerms(quadGramMatrix, lowfreq = 15)
-termFrequency <- rowSums(as.matrix(quadGramMatrix[freqTerms,]))
-termFrequency <- data.frame(quadgram=names(termFrequency), frequency=termFrequency)
+text_1 <- gsub("[\n]{1,}", " ", text)
 
 
-g4 <- ggplot(termFrequency, aes(x=reorder(quadgram, frequency), y=frequency)) +
-  geom_bar(stat = "identity", colour = "blue") +  coord_flip() +
-  theme(legend.title=element_blank()) +
-  xlab("Quadgram") + ylab("Frequency") +
-  labs(title = "Top Quadgrams by Frequency")
-print(g4)
+wordcloud(text_1, max.words = 500, random.order = T,rot.per=0.15, use.r.layout=FALSE,colors=brewer.pal(6, "Dark2"))
 
-#wordcloud(doc.corpus, max.words = 500, random.order = FALSE,rot.per=0.35, use.r.layout=FALSE,colors=brewer.pal(6, "Dark2"))
+#######Initializing stupid backoff algorithm on partly cleaned dataset
 
-#https://www.pluralsight.com/guides/machine-learning-text-data-using-r
+#create dictionary of airbnb reviewn corpus
+sbo_airbnb_dict = sbo_dictionary(pre_data_en, max_size=1000)
+
+tt_number = as.integer(length(pre_data_en)*0.2)
+
+traindata = pre_data_en[tt_number:length(pre_data_en)]
+testdata = pre_data_en[1:tt_number]
+
+#Fit model on triandata
+#Code copied and adjusted: https://cran.r-project.org/web/packages/sbo/vignettes/sbo.html
+
+p <- sbo_predictor(traindata, # 50k tweets, example dataset
+                   N = 5, # Train a 3-gram model
+                   dict = sbo_airbnb_dict, # Top 1k words appearing in corpus
+                   .preprocess = sbo::preprocess, # Preprocessing transformation
+                   EOS = ".?!:;", # End-Of-Sentence characters
+                   filtered = c("<UNK>","EOS>")
+)
+#Evaluate model on testdata
+evaluation <- eval_sbo_predictor(p, test = testdata )
+
+
+evaluation %>% filter(true != "<EOS>") %>% summarise(accuracy = sum(correct)/n(), 
+                                                     uncertainty = sqrt(accuracy * (1 - accuracy) / n())
+)
+
+
+#Plot diagramm in which parts of the dictionary most successfull predictions came from 
+evaluation %>%
+  filter(correct, true != "<EOS>") %>%
+  select(true) %>%
+  transmute(rank = match(true, table = attr(p, "dict"))) %>%
+  ggplot(aes(x = rank)) + geom_histogram(binwidth = 25)
 
 
 
-library(reticulate)
-library(tensorflow)
-#https://stackoverflow.com/questions/62532838/how-to-install-keras-bert-packagesnotfounderror-the-following-packages-are-no
-#reticulate::use_condaenv("bert_env", required=TRUE)
+#Refirt model on all data
+p <- sbo_predictor(pre_data_en, # 50k tweets, example dataset
+                   N = 5, # Train a 3-gram model
+                   dict = sbo_airbnb_dict, # Top 1k words appearing in corpus
+                   .preprocess = sbo::preprocess, # Preprocessing transformation
+                   EOS = ".?!:;", # End-Of-Sentence characters
+                   filtered = c("<UNK>","EOS>")
+)
 
+#######Initializing Markov Chain on fully cleaned dataset
+words = tokenize_words(text_1)
+#Fit markov model 
+fit_markov <- markovchainFit(words)
+
+#######Import independet source of large model (google) to evaluate similiarities between sbo and markov predictions
+## Assumption: Googles Dataset trained on wikipedia, gives a really good estimation if words are similiar or not
+
+
+
+# 
+# For installation with coda env: https://stackoverflow.com/questions/62532838/how-to-install-keras-bert-packagesnotfounderror-the-following-packages-are-no
 reticulate::use_python('C:/tools/Anaconda3/python.exe',required=T)
-
 reticulate::py_config()
+reticulate::py_install('gensim', pip = TRUE)
 
-reticulate::py_module_available("keras_bert")
+gensim = reticulate::import('gensim')
 
-tensorflow::tf_config()
+gensim$models$KeyedVectors$load_word2vec_format
 
-reticulate::py_install('genism', pip = TRUE)
+model = gensim$models$KeyedVectors$load_word2vec_format("C:/Users/Bela Boente/Desktop/Programming/NLP/GoogleNews-vectors-negative300.bin", binary=T)
 
-k_bert = import('keras_bert')
 
 
+start_helper()
 
 
-token_dict = k_bert$load_vocabulary(vocab_path)
-tokenizer = k_bert$Tokenizer(token_dict)
 
-tokenizer.encode(pre_data_en)
-
-library(LiblineaR)
-library(tidymodels)
-
-reticulate::py_install('transformers', pip = TRUE)
-transformer = reticulate::import('transformers')
-
-
-tf = reticulate::import('tensorflow')
-
-
-#https://huggingface.co/bert-base-uncased import 
-tokenizer = transformer$BertTokenizer$from_pretrained('bert-base-uncased')
-model = transformer$TFBertForMaskedLM$from_pretrained('bert-base-uncased')
-
-
-text = pre_data_en[20]
-
-encoding =tokenizer$encode(text)
-
-print(encoding)
-
-
-print(tokenizer$convert_ids_to_tokens(encoding))
-
-
-
-
-mutate(pre_data_en, tolower())
-
-df = data.frame(pre_data_en)
-
-pre_data_1 = df %>% mutate(excerpt=gsub("[^[:alnum:][:space:].]", "",substr(df,1,nchar(df)-1)))
-
-pre_data_1 =  pre_dat_1  %>% mutate(excerpt= tolower(excerpt))
-
-pre_data_1
-stop
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#cleaned_text <- filter(str_detect(pre_data_en, "^[^>]+[A-Za-z\\d]") | pre_data_en !="") 
-
-text = paste(unlist(pre_data_en[1:length(pre_data_en)]), collapse="\n")[1]
-
-text
-
-#Basic checks from HandsOn 1/3
-text[!utf8_valid(text)]
-#character(0) -> valid utf-8
-text_NFC = utf8_normalize(text)
-sum(text_NFC != text)
-# Result 0 -> valid 
-
-stringText <- paste(text, collapse = "\n") 
-paragraphs <- unlist(strsplit(stringText, "\\n\\n\\n"))
-
-parEmpty <- which(paragraphs == "") 
-parEmpty
-
-
-
-paragraphswoNL <- gsub("[\n]{1,}", " ", paragraphs)
-
-length(text)
-print(text)
-
-cleaned_text = text %>%
-  filter(str_detect(text, "^[^>]+[A-Za-z\\d]") | text !="") 
-
-
-
-
-
-
-sentences_part1 = spacy_tokenize(text, what="sentence") #Returns a list
-v_sentences_part1 <- unlist(sentences_part1)
-
-#stringi::stri_trans_general(utf8_encoded, "latin-ascii")
-
-data %>% 
-  unnest(comments) %>% unique %>% select(comments) -> comments_txt
-
-Encoding(comments_txt[1])
-
-#Taking a sample 
-
-#https://rpubs.com/tahirhussa/207317
-cleaned_txt = iconv(comments_txt, 'UTF-8', 'ASCII', "byte")
-print(cleaned_txt[1])
-
-cleaned_txt = tolower(cleaned_txt)
-cleaned_txt = removeWords(cleaned_txt,stopwords('en'))
-
-text_df = tibble(id_review = cleaned_txt)
-
-text_df = text_df %>%  unnest_tokens(word, id_review)
-
-cleaned_txt %>% unnest_tokens(words, y, to_lower = T) %>% 
-  mutate(text = words %in% GradyAugmented) 
-
-text_df
-
-
-text_df = text_df[text_df %in% GradyAugmented]
-
-print(text_df)
-
-print(cleaned_txt)
-
-#Checking if lines are utf8 valid 
-comments_txt[!utf8_valid(comments_txt)]
-
-
-
-library("textcat")
-textcat(c(
-  "This is an English sentence.",
-  "Das ist ein deutscher Satz.",
-  "Esta es una frase en espa~nol."))
