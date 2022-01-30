@@ -17,7 +17,7 @@ Important Note: Use RStudio to execute the script sequential. Variables are stor
 5) Install all requirements (uncomment the install.packages at the start of app.R
 6) Set working directory to folder with app.R (app.R - line 51)
 7) (Install python) pip install gensim
-8) Set python path in app.R -> can be found with "python where" command in cmd
+8) Set python path in app.R -> can be found with "python where" command in cmd (app.R - line 347)
 
 Important notes on Review Helper Writer
 
