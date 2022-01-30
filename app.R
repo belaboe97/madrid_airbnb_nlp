@@ -47,7 +47,7 @@ library("udpipe")
 library(reticulate)
 
 
-#Path of your R file 
+#Path of app.R file 
 setwd("")
 
 
